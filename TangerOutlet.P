@@ -1,0 +1,274 @@
+:- auto_table.
+:- dynamic store/4.
+:- dynamic link/2.
+:- dynamic nodelist/1.
+:- dynamic linklist/1.
+:- dynamic remain_sign/1.
+:- dynamic remain_new/2.
+
+%-----Table (facts: predicate = tuple)--------%
+%1. Store
+%store(Name, Capacity, Bankrupt, Waiting).
+%key: Name. */
+/*store(a,3,5,3).
+store(b,10,8,5).
+store(c,100,1,1).
+store(d,100,1,1).
+store(e,100,1,1).
+
+%------------------Relation--------------------%
+%2. Link
+%link(Name1, Name2).
+%key: (Name1, Name2). 
+link(a,b).
+link(c,b).
+link(a,c).
+link(d,a).
+link(e,a).
+link(e,d).
+
+link(b,a).
+link(b,c).
+link(c,a).
+link(a,d).
+link(a,e).
+link(d,e). */
+
+%-------------------Rules----------------------%
+/*test5(MinCustomers):-
+buy([store(a,3,5,3),store(b,10,8,5),store(c,100,1,1),store(d,100,1,1),store(e,100,1,1)],[link(a,b),link(c,b),link(a,c),link(d,a),link(e,a),link(e,d)],MinCustomers).
+% expecting 112
+% [d,e,a,c,b] */
+
+buy(StoreList, LinkList, MinCustomers) :-
+	retractall(store(N, C, B, W)),
+	retractall(link(X, Y)),
+	retractall(nodelist(M)),
+	retractall(linklist(N)),
+	retractall(remain_sign(XX)), 
+	retractall(remain_new(XXX, Remain_Y1)), 
+	asserta(remain_sign(0)),
+	asserta(remain_new(0,0)),
+
+	store_table(StoreList),
+	link_table(LinkList),
+	asserta(nodelist([])),
+	node_list();
+	asserta(linklist([])),
+	link_list();
+	nodelist(NodeList),
+	linklist(LinkList_double),
+	shortest_path(graph(NodeList, LinkList_double), Path, MinCustomers).
+
+%store(0,0,0,0).
+
+store_table([]).
+store_table(StoreList) :-
+	StoreList = [X|StoreList1],
+	%write('StoreList1 = '), writeln(StoreList1),
+	store(Name, Capacity, Bankrupt, Waiting) = X,
+	%write('store('), write(Name), write(','), write(Capacity), write(','), write(Bankrupt), write(','), write(Waiting), writeln(')'),
+	asserta(store(Name, Capacity, Bankrupt, Waiting)),
+	store_table(StoreList1).
+
+%link(0,0).
+
+link_table([]).
+link_table(LinkList) :-
+	LinkList = [X|LinkList1],
+	link(Name1, Name2) = X,
+	asserta(link(Name1, Name2)),
+	asserta(link(Name2, Name1)),
+	link_table(LinkList1).
+
+%store_table([store(a,3,5,3),store(b,10,8,5),store(c,100,1,1)]).
+%link_table([link(a,b),link(c,b)]).
+node_list() :-
+	store(Name, _, _, _),
+	nodelist(NodeList1), %--initial NodeList is not empty
+	add(Name, NodeList1, NodeList),
+	retract(nodelist(NodeList1)),
+	asserta(nodelist(NodeList)), fail. 
+
+add(X, List, Result) :-
+	Result = [X|List].
+
+link_list() :-
+	link(Name1, Name2),
+	linklist(NodeList1), %--initial LinkList is not empty
+	add(link(Name1, Name2), LinkList1, LinkList),
+	retract(linklist(LinkList1)),
+	asserta(linklist(LinkList)), fail. 
+
+%--------Graph------------%
+edge(X, Y) :- link(X, Y).
+
+%--edge_weight, (Remain_X is not changed, choose Weight_Y)
+edge(X, Y, Weight) :- 
+	%writeln('edge(X, Y, Weight), Remain_X is not changed.'),
+	edge(X, Y), 
+	store(Y, Capacity_Y, _, _), 
+	tnot(remain_sign(X)), %--Remain_X is not changed, use tnot()
+	remain(X, Remain_X), %--old Remain_X
+	%write('Capacity_Y = '), writeln(Capacity_Y),
+	%write('Remain_X = '), writeln(Remain_X),
+	(Capacity_Y < Remain_X
+	-> edge_weight0(X, Y, Remain_X, Weight, Remain_Y1), %--Capacity_Y < Remain_X
+	   %write('Remain_Y1 = 0'), writeln(Remain_Y1),
+	   %writeln(X),
+	   change_remain(Y, Remain_Y1),! %--create new Remain_Y sign
+	;  edge_weight1(X, Y, Remain_X, Weight),!). %--Capacity_Y > Remain_X
+	   %writeln(X).
+
+%--edge_weight, (Remain_X is changed, choose Weight_Y)
+edge(X, Y, Weight) :- 
+	%writeln('edge(X, Y, Weight), Remain_X is changed.'),
+	edge(X, Y), 
+	store(Y, Capacity_Y, _, _), 
+	remain_sign(X),
+	remain_new(X, Remain_X), %--new Remain_X
+	undo_change_remain(X), %--delete new Remain_X
+	%write('Capacity_Y = '), writeln(Capacity_Y),
+	%writeln('Remain_X = '), writeln(Remain_X),
+	(Capacity_Y < Remain_X
+	-> edge_weight0(X, Y, Remain_X, Weight, Remain_Y1), %--Capacity_Y < Remain_X
+	   %write('Remain_Y1 = '), writeln(Remain_Y1),
+	   %writeln(X),
+	   change_remain(Y, Remain_Y1),! %--create new Remain_Y sign
+	;  edge_weight1(X, Y, Remain_X, Weight),!). %--Capacity_Y > Remain_X
+	   %writeln(X). 
+
+%--calculate edge_weight = 0
+edge_weight0(X, Y, Remain_X, Weight, Remain_Y1) :-
+	%writeln('edge_weight0(X, Y, Weight, Remain_Y1)'),
+	edge(X, Y), 
+	loose(Y, Loose_Y),
+	%remain(X, Remain_X), 
+	Weight is 0,
+	%write('Remain_X = '), writeln(Remain_X),
+	%write('Loose_Y = '), writeln(Loose_Y),
+	Remain_Y1 is Remain_X - Loose_Y,!.
+	%write('Remain_Y1 = '), writeln(Remain_Y1),
+	%Remain_Y2 is Remain_Y1 + 1,
+	%write('Remain_Y2 = '), writeln(Remain_Y2),
+	%write('Weight = Remain_X - Loose_Y = '), writeln(Weight),!.
+
+%--calculate edge_weight =\= 0
+edge_weight1(X, Y, Remain_X, Weight) :-
+	%writeln('edge_weight1(X, Y, Weight)'),
+	edge(X, Y),
+	store(Y, Capacity_Y, _, _), 
+	%remain(X, Remain_X), 
+	%write('Capacity_Y = '), writeln(Capacity_Y),
+	%write('Remain_X = '), writeln(Remain_X),
+	Weight is Capacity_Y - Remain_X,!.
+	%write('Weight = Capacity_Y - Remain_X = '), writeln(Weight),!.
+
+remain_new(0, 0).
+
+remain_sign(0).
+
+change_remain(X, Remain_Y1):-
+	asserta(remain_sign(X)),
+	asserta(remain_new(X, Remain_Y1)).
+
+undo_change_remain(X) :-
+	retract(remain_sign(X)),
+	retract(remain_new(X,_)).
+
+loose(Name, Loose) :- 
+	store(Name, _, Bankrupt, Waiting), 
+	Loose is Bankrupt + Waiting.
+
+remain(Name, Remain) :- 
+	store(Name, Capacity, _, _), 
+	loose(Name, Loose), 
+	Remain is Capacity - Loose. 
+
+/* graph(Nodes, Edges) :-
+	node(Nodes),
+	edge(Edges).
+
+node(Nodes) :- Nodes = [walm, jcp, tommy].
+
+edge(Edges) :- Edges = [link(walm, jcp),link(jcp, tommy),link(jcp, walm),link(tommy, jcp)]. */
+
+%----------Path---------------%
+path(A, Z, Graph, Path) :- 
+	
+	retractall(remain_sign(X)), %--star
+	retractall(remain_new(X, Remain_Y1)), 
+	asserta(remain_sign(0)),
+	asserta(remain_new(0,0)),
+
+	path1(A, [Z], Graph, Path).
+
+path1(A, [A|Path1], Graph, [A|Path1]).
+path1(A, [Y|Path1], graph(Nodes,Edges), Path) :-
+	member(link(X,Y), Edges),
+	not_member(X, Path1),
+	path1(A, [X,Y|Path1], graph(Nodes,Edges), Path).
+
+not_member(X, []).
+not_member(X, [Y|L]) :-
+	not_member(X, L),
+	X \== Y. 
+
+member(X, [X|L]).
+member(X, [Y|L]) :- member(X, L). 
+
+/* | ?- path(a,b,graph([a,b,c,d,e],[link(a,b),link(c,b),link(a,c),link(d,a),link(e,a),link(e,d),link(b,a),link(b,c),link(c,a),link(a,d),link(a,e),link(d,e)]),Path). */
+
+%------Hamilton Path----------%
+hamiltonian(graph(Nodes, Edges), Path) :- 
+	path(A, Z, graph(Nodes, Edges), Path),
+	eq_set(Path, Nodes).
+
+eq_set(P, N) :- 
+	subset(P,N),
+	subset(N,P).
+
+subset([], S).
+subset([A|L], S) :- 
+	member(A, S),
+	subset(L, S).
+
+%:-nl,nl, hamiltonian(graph([a,b,c,d,e],[link(a,b),link(c,b),link(a,c),link(d,a),link(e,a),link(e,d),link(b,a),link(b,c),link(c,a),link(a,d),link(a,e),link(d,e)]),Path), writeln(Path),fail. 
+
+%---Hamilton Path Cost--------%
+hamiltonian_C(graph(Nodes, Edges), Path, Cost) :- 
+	path(A, Z, graph(Nodes, Edges), Path),
+	eq_set(Path, Nodes),
+	initial_capacity(Path, Initial),
+	cost_sum(Path, Initial, Cost).
+
+initial_capacity(Path, Initial) :-
+	Path = [X|Es],
+	store(X, Initial, Bankrupt, Waiting).
+
+cost_sum([X|Es], Initial, Cost) :-
+	Es = []
+	-> Cost = Initial
+	;  Es = [Y|Es1],
+	   edge(X, Y, Weight),
+	   Initial1 is Weight + Initial,
+	   cost_sum(Es, Initial1, Cost).	  
+
+%:-nl,nl,hamiltonian_C(graph([a,b,c,d,e],[link(a,b),link(c,b),link(a,c),link(d,a),link(e,a),link(e,d),link(b,a),link(b,c),link(c,a),link(a,d),link(a,e),link(d,e)]),Path,Cost),writeln(Path),writeln(Cost),fail. 
+
+%---Min Hamilton Path Cost-----%
+shortest_path(graph(Nodes, Edges), Path, Mini_Cost) :- 
+        hamiltonian_C(graph(Nodes, Edges), Path, Mini_Cost),
+        no_shorter_path(graph(Nodes, Edges), Path1, Cost1, Mini_Cost).
+
+no_shorter_path(graph(Nodes, Edges), Path, Cost, Mini_Cost) :-
+        not( and(graph(Nodes, Edges), Path, Cost, Mini_Cost) ).
+
+and(graph(Nodes, Edges), Path, Cost, Mini_Cost) :- 
+        hamiltonian_C(graph(Nodes, Edges), Path, Cost),
+        Cost < Mini_Cost.
+
+/*:-nl,nl,shortest_path(graph([a,b,c,d,e],[link(a,b),link(c,b),link(a,c),link(d,a),link(e,a),link(e,d),link(b,a),link(b,c),link(c,a),link(a,d),link(a,e),link(d,e)]),Path,Mini_Cost),writeln(Path),writeln(Mini_Cost),fail. */
+
+%---------------Output Result------------------% 
+
